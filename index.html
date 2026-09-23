@@ -47,33 +47,64 @@ const fmtDate=d=>d?new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'short',
 const daysTo=d=>d?Math.ceil((new Date(d.slice(0,10)+'T23:59:59Z')-new Date())/86400000):null;
 const level=d=>{const n=daysTo(d);if(n===null)return 'warn';if(n<0)return 'bad';if(n<=35)return 'warn';return ''};
 const reg=id=>state.vehicles.find(v=>v.id===id)?.registration||'General';
+function calc(){
+ const monthlyRecurring=state.recurring.reduce((sum,x)=>sum+(x.cadence==='annual'?Number(x.amount||0)/12:Number(x.amount||0)),0);
+ const now=new Date();
+ const ym=now.toISOString().slice(0,7);
+ const thisMonthExpenses=state.expenses.filter(x=>String(x.expense_date||'').slice(0,7)===ym).reduce((sum,x)=>sum+Number(x.amount||0),0);
+ let avgExpenseMonth=0;
+ if(state.expenses.length){
+   const dates=state.expenses.map(x=>new Date(String(x.expense_date).slice(0,10)+'T12:00:00Z')).filter(d=>!Number.isNaN(d.getTime())).sort((a,b)=>a-b);
+   if(dates.length){
+     const first=dates[0];
+     const months=Math.max(1,(now.getUTCFullYear()-first.getUTCFullYear())*12+(now.getUTCMonth()-first.getUTCMonth())+1);
+     avgExpenseMonth=state.expenses.reduce((sum,x)=>sum+Number(x.amount||0),0)/months;
+   }
+ }
+ const avg=monthlyRecurring+avgExpenseMonth;
+ return {thisMonth:monthlyRecurring+thisMonthExpenses,avg,annual:avg*12};
+}
 
 function renderAuth(){
  root.innerHTML=`<div class="loginwrap"><div class="login">
    <div class="hero">
-     <div><div class="eyebrow" style="color:#d8c6a5">Private family vehicle hub</div><h1 class="title" style="font-size:44px;margin-top:6px">Our Garage</h1><p class="sub">A calmer way to keep MOTs, insurance, documents, costs and emergency help together — for both of you.</p></div>
-     <div class="hero-preview"><div class="minirow"><span class="plate front">EF14 ABN</span><span><span class="minilabel">Next MOT</span><br><strong>4 Oct 2026</strong></span></div><div class="minirow"><span class="plate">FJ14 SMV</span><span><span class="minilabel">Insurance</span><br><strong>29 Oct 2026</strong></span></div><div class="minirow"><span class="minilabel">Shared securely</span><strong>2 people · 2 cars</strong></div></div>
+     <div><div class="eyebrow" style="color:#d8c6a5">Private family vehicle hub</div><h1 class="title" style="font-size:44px;margin-top:6px">Our Garage</h1><p class="sub">A private place for your household to keep vehicle dates, documents, costs and emergency contacts together.</p></div>
+     <div class="hero-preview"><div class="minirow"><span class="minilabel">Access</span><strong>Household members only</strong></div><div class="minirow"><span class="minilabel">Documents</span><strong>Private signed access</strong></div><div class="minirow"><span class="minilabel">Membership</span><strong>Maximum 2 people</strong></div></div>
    </div>
-   <div class="card"><div class="eyebrow">Welcome</div><h2 style="font-size:28px;letter-spacing:-.03em;margin-top:5px">${mode==='login'?'Sign in':'Create your account'}</h2><p class="sub">${mode==='login'?'Open your shared family garage.':'Create your secure login, then connect to the shared garage.'}</p>
-     <div class="auth-tabs"><button id="loginTab" class="${mode==='login'?'active':''}">Sign in</button><button id="signupTab" class="${mode==='signup'?'active':''}">Create account</button></div>
-     <form id="authForm"><div class="field"><label>Email address</label><input id="email" type="email" autocomplete="email" required placeholder="you@example.com"></div><div class="field" style="margin-top:12px"><label>Password</label><input id="password" type="password" minlength="8" autocomplete="${mode==='login'?'current-password':'new-password'}" required placeholder="At least 8 characters"></div><button class="btn" id="authSubmit" style="width:100%;margin-top:16px">${mode==='login'?'Sign in to Our Garage':'Create account'}</button></form><div id="authMsg"></div><p class="small" style="margin-top:16px;text-align:center">Your vehicle records and uploaded documents stay behind your login.</p>
+   <div class="card"><div class="eyebrow">Secure access</div><h2 style="font-size:28px;letter-spacing:-.03em;margin-top:5px">${mode==='login'?'Sign in':'Join by invitation'}</h2><p class="sub">${mode==='login'?'Sign in to your private garage.':'You need the private invite code from the garage owner.'}</p>
+     <div class="auth-tabs"><button id="loginTab" class="${mode==='login'?'active':''}">Sign in</button><button id="signupTab" class="${mode==='signup'?'active':''}">I have an invite</button></div>
+     <form id="authForm"><div class="field"><label>Email address</label><input id="email" type="email" autocomplete="email" required placeholder="you@example.com"></div><div class="field" style="margin-top:12px"><label>Password</label><input id="password" type="password" minlength="8" autocomplete="${mode==='login'?'current-password':'new-password'}" required placeholder="At least 8 characters"></div>${mode==='signup'?'<div class="field" style="margin-top:12px"><label>Private invite code</label><input id="signupCode" maxlength="20" required placeholder="Invite code from the owner"></div>':''}<button class="btn" id="authSubmit" style="width:100%;margin-top:16px">${mode==='login'?'Sign in to Our Garage':'Create invited account'}</button></form><div id="authMsg"></div><p class="small" style="margin-top:16px;text-align:center">An account alone does not grant access to garage data.</p>
    </div>
  </div></div>`;
  document.querySelector('#loginTab').onclick=()=>{mode='login';renderAuth()};
  document.querySelector('#signupTab').onclick=()=>{mode='signup';renderAuth()};
- document.querySelector('#authForm').onsubmit=async e=>{e.preventDefault();const email=document.querySelector('#email').value.trim(),password=document.querySelector('#password').value;const btn=document.querySelector('#authSubmit');btn.disabled=true;const res=mode==='login'?await sb.auth.signInWithPassword({email,password}):await sb.auth.signUp({email,password});btn.disabled=false;const msg=document.querySelector('#authMsg');if(res.error){msg.innerHTML=`<div class="alert err">${esc(res.error.message)}</div>`;return}if(mode==='signup'&&!res.data.session){msg.innerHTML='<div class="alert ok">Account created. Check your email to confirm it, then return here and sign in.</div>';return}await route();};
+ document.querySelector('#authForm').onsubmit=async e=>{
+   e.preventDefault();
+   const email=document.querySelector('#email').value.trim(),password=document.querySelector('#password').value,btn=document.querySelector('#authSubmit');
+   let invite='';
+   if(mode==='signup'){
+     invite=document.querySelector('#signupCode').value.trim().toUpperCase();
+     if(!invite){document.querySelector('#authMsg').innerHTML='<div class="alert err">An invite code is required.</div>';return}
+     localStorage.setItem('ourGaragePendingInvite',invite);
+   }
+   btn.disabled=true;
+   const res=mode==='login'?await sb.auth.signInWithPassword({email,password}):await sb.auth.signUp({email,password,options:{emailRedirectTo:'https://lyledaniel-ux.github.io/our-garage/'}});
+   btn.disabled=false;
+   const msg=document.querySelector('#authMsg');
+   if(res.error){if(mode==='signup')localStorage.removeItem('ourGaragePendingInvite');msg.innerHTML=`<div class="alert err">${esc(res.error.message)}</div>`;return}
+   if(mode==='signup'&&!res.data.session){msg.innerHTML='<div class="alert ok">Account created. Confirm your email, then return to Our Garage and sign in. Your invite will be applied automatically.</div>';return}
+   await route();
+ };
 }
 
-function renderOnboarding(){
+function renderOnboarding(initialError=''){
+ const pending=localStorage.getItem('ourGaragePendingInvite')||'';
  root.innerHTML=`<div class="loginwrap"><div class="login">
- <div class="hero"><div class="eyebrow" style="color:#aeb9c7">Shared access</div><h1 class="title">Welcome</h1><p class="sub">Create the family garage once, then the second person joins it with the invite code.</p></div>
- <div class="card"><button id="create" class="btn" style="width:100%">Create Our Garage</button>
- <div style="text-align:center;color:var(--muted);margin:14px 0">or</div>
- <div class="field"><label>Invite code</label><input id="code" maxlength="20" placeholder="Enter code from Settings"></div>
- <button id="join" class="btn secondary" style="width:100%;margin-top:10px">Join existing garage</button><div id="msg"></div></div></div></div>`;
- document.querySelector('#create').onclick=async()=>{const r=await sb.rpc('bootstrap_garage',{p_name:'Our Garage'});if(r.error)return msg(r.error.message,true);await route()};
- document.querySelector('#join').onclick=async()=>{const c=document.querySelector('#code').value.trim();if(!c)return msg('Enter the invite code first.',true);const r=await sb.rpc('join_garage',{p_invite_code:c});if(r.error)return msg(r.error.message,true);await route()};
- function msg(t,e=false){document.querySelector('#msg').innerHTML=`<div class="alert ${e?'err':'ok'}">${esc(t)}</div>`}
+ <div class="hero"><div><div class="eyebrow" style="color:#aeb9c7">Invitation required</div><h1 class="title">Join Our Garage</h1><p class="sub">New garages cannot be created from this website. Only someone with the private invite code can join the existing garage.</p></div><div class="hero-preview"><div class="minirow"><span class="minilabel">Privacy</span><strong>No invite = no garage data</strong></div><div class="minirow"><span class="minilabel">Limit</span><strong>2 household members maximum</strong></div></div></div>
+ <div class="card"><div class="field"><label>Private invite code</label><input id="code" maxlength="20" value="${esc(pending)}" placeholder="Enter code from garage owner"></div><button id="join" class="btn" style="width:100%;margin-top:12px">Join Our Garage</button><button id="signoutOnboard" class="btn secondary" style="width:100%;margin-top:9px">Sign out</button><div id="msg">${initialError?`<div class="alert err">${esc(initialError)}</div>`:''}</div><p class="small" style="margin-top:14px">For security, this garage stops accepting new members once two people have joined.</p></div></div></div>`;
+ document.querySelector('#join').onclick=async()=>{const c=document.querySelector('#code').value.trim().toUpperCase();if(!c)return show('Enter the invite code first.',true);const r=await sb.rpc('join_garage',{p_invite_code:c});if(r.error)return show(r.error.message,true);localStorage.removeItem('ourGaragePendingInvite');await route()};
+ document.querySelector('#signoutOnboard').onclick=async()=>{localStorage.removeItem('ourGaragePendingInvite');await sb.auth.signOut();await route()};
+ function show(t,e=false){document.querySelector('#msg').innerHTML=`<div class="alert ${e?'err':'ok'}">${esc(t)}</div>`}
 }
 
 async function route(){
@@ -81,7 +112,15 @@ async function route(){
  if(!session){state.household=null;renderAuth();return}
  const q=await sb.from('household_members').select('household_id,role,households(id,name,invite_code)').eq('user_id',session.user.id).limit(1);
  if(q.error){root.innerHTML=`<div class="loginwrap"><div class="card"><h2>Could not load garage</h2><p class="sub">${esc(q.error.message)}</p></div></div>`;return}
- if(!q.data?.length){renderOnboarding();return}
+ if(!q.data?.length){
+   const pending=localStorage.getItem('ourGaragePendingInvite');
+   if(pending){
+     const jr=await sb.rpc('join_garage',{p_invite_code:pending});
+     if(!jr.error){localStorage.removeItem('ourGaragePendingInvite');return route()}
+     renderOnboarding(jr.error.message);return;
+   }
+   renderOnboarding();return;
+ }
  state.household=q.data[0].households;await loadData();renderApp();
 }
 
@@ -128,7 +167,7 @@ function renderHome(v){
 }
 function renderCars(v){
  v.innerHTML=`<section class="grid cars">${state.vehicles.map(c=>carCard(c,true)).join('')}</section><section class="section"><div class="panel-title"><h2>Service & repair history</h2><button class="btn" id="addService">+ Add record</button></div><div class="card"><div class="list">${state.services.length?state.services.map(x=>`<div class="listrow"><span><strong>${esc(reg(x.vehicle_id))} · ${esc(x.category)}</strong><div class="small">${fmtDate(x.record_date)}${x.mileage?' · '+x.mileage+' miles':''}${x.supplier?' · '+esc(x.supplier):''}${x.note?' · '+esc(x.note):''}</div></span><strong>${x.amount!==null?money(x.amount):''}</strong></div>`).join(''):'<div class="empty">No service or repair records yet.</div>'}</div></div></section>`;
- document.querySelectorAll('.editcar').forEach(b=>b.onclick=()=>editVehicle(b.dataset.id));
+ document.querySelectorAll('.editVehicle').forEach(b=>b.onclick=()=>editVehicle(b.dataset.id));
  document.querySelector('#addService').onclick=addService;
 }
 function renderMoney(v){
@@ -139,7 +178,8 @@ function renderMoney(v){
  document.querySelector('#addExpense').onclick=addExpense;document.querySelector('#addRecurring').onclick=addRecurring;
 }
 function renderDocs(v){
- v.innerHTML=`<div class="panel-title"><h2>Documents</h2><button class="btn" id="upload">+ Upload</button></div><div class="notice">Documents are stored privately and require a signed-in household member.</div><section class="section grid cars">${state.vehicles.map(c=>{const ds=state.docs.filter(d=>d.vehicle_id===c.id);return `<article class="card"><span class="plate ${c.registration==='EF14 ABN'?'front':''}">${esc(c.registration)}</span><div class="list section">${ds.length?ds.map(d=>`<div class="listrow"><span><strong>${esc(d.label)}</strong><div class="small">${esc(d.doc_type)}</div></span>${d.storage_path?`<button class="btn secondary openDoc" data-id="${d.id}">Open</button>`:'<span class="file-pill">Held</span>'}</div>`).join(''):'<div class="empty">No documents.</div>'}</div></article>`}).join('')}</section>`;
+ const uploaded=state.docs.filter(d=>d.storage_path).length, held=state.docs.filter(d=>!d.storage_path).length;
+ v.innerHTML=`<div class="panel-title"><div><h2>Documents</h2><div class="small">${uploaded} uploaded · ${held} reference ${held===1?'entry':'entries'}</div></div><button class="btn" id="upload">+ Upload</button></div><div class="notice">Uploaded files are private. “Reference only” means we have the document listed, but the actual PDF/photo has not yet been attached.</div><section class="section grid cars">${state.vehicles.map(c=>{const ds=state.docs.filter(d=>d.vehicle_id===c.id);return `<article class="card"><span class="plate ${c.registration==='EF14 ABN'?'front':''}">${esc(c.registration)}</span><div class="list section">${ds.length?ds.map(d=>`<div class="listrow"><span><strong>${esc(d.label)}</strong><div class="small">${esc(d.doc_type)} · ${d.storage_path?'Uploaded securely':'Reference only'}</div></span>${d.storage_path?`<button class="btn secondary openDoc" data-id="${d.id}">Open</button>`:'<span class="file-pill">No file yet</span>'}</div>`).join(''):'<div class="empty">No documents.</div>'}</div></article>`}).join('')}</section>`;
  document.querySelector('#upload').onclick=uploadDoc;document.querySelectorAll('.openDoc').forEach(b=>b.onclick=()=>openDoc(b.dataset.id));
 }
 function renderHelp(v){
@@ -169,9 +209,14 @@ function uploadDoc(){
  const el=modal('Upload private document',`<form id="f" class="form-grid section"><div class="field"><label>Car</label><select name="vehicle_id">${state.vehicles.map(c=>`<option value="${c.id}">${esc(c.registration)}</option>`).join('')}</select></div><div class="field"><label>Type</label><select name="doc_type">${['V5C','Insurance','MOT','Service invoice','Receipt','Other'].map(x=>`<option>${x}</option>`).join('')}</select></div><div class="field" style="grid-column:1/-1"><label>Label</label><input name="label" required></div><div class="field" style="grid-column:1/-1"><label>PDF or photo</label><input type="file" name="file" accept=".pdf,image/*" required></div><div><button class="btn">Upload securely</button></div></form>`);
  el.querySelector('#f').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),file=f.get('file'),vid=f.get('vehicle_id');const safe=file.name.replace(/[^a-zA-Z0-9._-]/g,'_'),path=state.household.id+'/'+vid+'/'+Date.now()+'-'+safe;const up=await sb.storage.from('garage-docs').upload(path,file);if(up.error)return alert(up.error.message);const r=await sb.from('documents').insert({household_id:state.household.id,vehicle_id:vid,doc_type:f.get('doc_type'),label:f.get('label'),status:'uploaded',storage_path:path,uploaded_by:state.session.user.id});if(r.error)return alert(r.error.message);el.remove();await refresh()};
 }
-async function openDoc(id){const d=state.docs.find(x=>x.id===id);if(!d?.storage_path)return;const r=await sb.storage.from('garage-docs').createSignedUrl(d.storage_path,60);if(r.error)return alert(r.error.message);window.open(r.data.signedUrl,'_blank','noopener')}
+async function openDoc(id){
+ const d=state.docs.find(x=>x.id===id);if(!d?.storage_path)return alert('This document is listed but no file has been uploaded yet.');
+ const r=await sb.storage.from('garage-docs').createSignedUrl(d.storage_path,300);
+ if(r.error)return alert(r.error.message);
+ window.location.assign(r.data.signedUrl);
+}
 function renderSettings(){
- const el=modal('Garage settings',`<div class="settingsline"><div><strong>Garage</strong><div class="small">${esc(state.household.name)}</div></div></div><div class="settingsline"><div><strong>Invite code</strong><div class="small">Give this only to Lara/Lyle after they create their account.</div></div><span class="plate">${esc(state.household.invite_code)}</span></div><div class="settingsline"><div><strong>Currency</strong><div class="small">GBP (£)</div></div></div><div class="settingsline"><div><strong>Signed in</strong><div class="small">${esc(state.session.user.email)}</div></div><button class="btn secondary" id="signout">Sign out</button></div>`);
+ const el=modal('Garage settings',`<div class="settingsline"><div><strong>Garage</strong><div class="small">${esc(state.household.name)}</div></div></div><div class="settingsline"><div><strong>Invite code</strong><div class="small">Share this only with the second household member. It will stop working once two members have joined.</div></div><span class="plate">${esc(state.household.invite_code)}</span></div><div class="settingsline"><div><strong>Currency</strong><div class="small">GBP (£)</div></div></div><div class="settingsline"><div><strong>Signed in</strong><div class="small">${esc(state.session.user.email)}</div></div><button class="btn secondary" id="signout">Sign out</button></div>`);
  el.querySelector('#signout').onclick=async()=>{await sb.auth.signOut();el.remove();await route()};
 }
 async function refresh(){await loadData();renderApp()}
